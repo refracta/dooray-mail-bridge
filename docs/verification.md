@@ -5,8 +5,8 @@ checks are performed separately against configured accounts and never run in CI.
 
 ## Automated coverage
 
-On 2026-11-17, all **48 top-level tests** passed under `go test -race -count=1
-./...`. The explicitly opt-in live-login test was skipped by this normal suite.
+On 2026-11-17, all **51 top-level tests** passed under `go test -race ./...`.
+The explicitly opt-in live-login test was skipped by this normal suite.
 `go vet ./...`, a static Linux build, and `govulncheck ./...` also passed; the
 vulnerability check reported no findings.
 
@@ -22,6 +22,8 @@ vulnerability check reported no findings.
 - One-use SAML handoff after the optional device-notice skip.
 - Listener configuration and loopback-only plaintext restrictions.
 - Metadata-only subject search without downloading unrelated MIME/attachments.
+- Draft import, append-replacement/delete-old saves, unfinished headers, exact
+  attachment bytes, and UID/body persistence across a bridge restart.
 
 ## Live verification
 
@@ -38,6 +40,8 @@ account, using the running bridge and the connected mail MCP:
 | Read state | PEEK preserved unread state; normal FETCH marked read; read/unread and favorite changes were visible in a second session |
 | Mailbox operations | CREATE, RENAME, COPY, MOVE, staged deletion, EXPUNGE, and DELETE passed using temporary test folders |
 | APPEND | Imported synthetic MIME was downloaded byte-for-byte unchanged; temporary imported mail was removed |
+| Draft saving | The deployed TLS endpoint accepted `APPEND (\Seen \Draft)` without recipients; a replacement draft preserved Korean text, a binary attachment and a CID image byte-for-byte; targeted deletion removed the superseded version |
+| Draft persistence | After restarting the deployed container, a fresh IMAP connection retrieved the same draft UID, UIDVALIDITY, INTERNALDATE and original MIME; the synthetic draft was then removed |
 | SMTP delivery | A message submitted to the bridge arrived at Naver with Korean text and the expected attachment |
 | PNG attachments and inline images | Ordinary PNG and HTML CID image were submitted over TLS SMTP; both Naver attachment downloads matched the source SHA-256, and the Sent-folder MIME contained the matching CID reference |
 | Round trip | The file actually received at Naver was attached to a reply; the bridge retrieved it via IMAP and the hash still matched |
@@ -59,9 +63,6 @@ memory ceiling; large MIME messages and concurrent clients increase usage.
 
 ## Unverified or unsupported behavior
 
-Draft APPEND to the system Drafts mailbox is supported. Regression tests cover
-exact MIME import, read/favorite flags, draft replacement, unsent drafts without
-recipients, and UID/body/attachment persistence after restarting the bridge.
 Changes to `\Answered`/`\Draft` through STORE, arbitrary SMTP header preservation,
 UIDPLUS, and COPY of bridge-only imported-date/deleted overlays are not claimed.
 Automatic expiry recovery was exercised with fake HTTP sessions; real fresh
