@@ -769,6 +769,61 @@ func TestAppendInternalDateSurvivesSyncRestartAndMove(t *testing.T) {
 	}
 }
 
+func TestDraftReplacementSurvivesRestartWithoutSending(t *testing.T) {
+	p := newFake()
+	p.folders["drafts"] = model.Folder{ID: "drafts", Name: "Drafts", SpecialUse: `\Drafts`}
+	dir := t.TempDir()
+	_, addr, stop := wireBridge(t, p, dir)
+	c := client(t, addr, nil)
+	initial := mustSelect(t, c, "Drafts", false)
+	appendDraft := func(raw []byte) imap.UID {
+		t.Helper()
+		command := c.Append("Drafts", int64(len(raw)), &imap.AppendOptions{Flags: []imap.Flag{imap.FlagSeen, imap.FlagDraft}})
+		if _, err := command.Write(raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := command.Close(); err != nil {
+			t.Fatal(err)
+		}
+		data, err := command.Wait()
+		if err != nil || data.UID == 0 || data.UIDValidity != initial.UIDValidity {
+			t.Fatalf("draft append failed: %v, %v", data, err)
+		}
+		return data.UID
+	}
+	// An unfinished draft may have no recipients or subject.
+	first := appendDraft([]byte("From: fixture@example.test\r\n\r\n"))
+	updated := []byte("From: fixture@example.test\r\nSubject: updated draft\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=draft\r\n\r\n--draft\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n한글 초안\r\n--draft\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=sample.bin\r\nContent-Transfer-Encoding: base64\r\n\r\nAP+A\r\n--draft--\r\n")
+	second := appendDraft(updated)
+	if second <= first {
+		t.Fatal("updated draft reused a UID")
+	}
+	if err := c.Store(imap.UIDSetNum(first), &imap.StoreFlags{Op: imap.StoreFlagsAdd, Flags: []imap.Flag{imap.FlagDeleted}, Silent: true}, nil).Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Expunge().Close(); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	stop()
+	_, addr, _ = wireBridge(t, p, dir)
+	c = client(t, addr, nil)
+	state := mustSelect(t, c, "Drafts", true)
+	if state.NumMessages != 1 || state.UIDValidity != initial.UIDValidity {
+		t.Fatalf("draft replacement did not survive restart: %#v", state)
+	}
+	section := &imap.FetchItemBodySection{Peek: true}
+	got := fetchOne(t, c, imap.UIDSetNum(second), &imap.FetchOptions{UID: true, Flags: true, BodySection: []*imap.FetchItemBodySection{section}})
+	if got.UID != second || !hasFlag(got.Flags, imap.FlagDraft) || !bytes.Equal(got.FindBodySection(section), updated) {
+		t.Fatal("saved draft UID, flag, body or attachment changed")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sendCalls != 0 {
+		t.Fatal("saving a draft sent mail")
+	}
+}
+
 func TestFailedMailboxScanPreservesSnapshotAndUIDs(t *testing.T) {
 	p := newFake()
 	p.add("inbox", plainMessage("one"))

@@ -336,6 +336,94 @@ func TestAppendWithoutIDReconcilesByOriginalBytes(t *testing.T) {
 	}
 }
 
+func TestAppendDraftPreservesMIMEAndSynchronizesWritableFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name, readPath string
+		flags          []string
+		favorite       bool
+	}{
+		{"draft only", "/v2/wapi/mails/unread", []string{`\Draft`}, false},
+		{"outlook draft", "/v2/wapi/mails/read", []string{`\Seen`, `\Draft`}, false},
+		{"case insensitive", "/v2/wapi/mails/read", []string{`\draft`, `\seen`, `\flagged`}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := []byte(submission)
+			imported := false
+			writes := 0
+			f := &fakeTransport{do: func(method, path string, body []byte, ct string) (*http.Response, error) {
+				if strings.HasPrefix(path, "/v2/wapi/mails?") {
+					q, _ := url.Parse(path)
+					if q.Query().Get("folderId") != "drafts" {
+						t.Fatal("draft saved to a different mailbox")
+					}
+					items := []any{}
+					if imported {
+						items = append(items, messageRecord("saved-draft"))
+					}
+					return okResponse(map[string]any{"totalCount": len(items), "contents": items}), nil
+				}
+				switch path {
+				case "/v2/wapi/mail-folders/drafts/import-mail":
+					writes++
+					got, filename := uploadedFile(t, body, ct)
+					if method != "POST" || filename != "message.eml" || !bytes.Equal(got, raw) {
+						t.Fatal("draft headers, body or attachment bytes changed")
+					}
+					imported = true
+					// The live import API omits the inserted ID.
+					return okResponse(nil), nil
+				case "/v2/wapi/mails/saved-draft?type=raw":
+					return originalResponse(raw), nil
+				case tc.readPath:
+					if !reflect.DeepEqual(decodeObject(t, body), map[string]any{"mailIdList": []any{"saved-draft"}}) {
+						t.Fatal("wrong draft read-state target")
+					}
+					return okResponse(nil), nil
+				case "/v2/wapi/mails/saved-draft/annotations":
+					if decodeObject(t, body)["favorited"] != tc.favorite {
+						t.Fatal("favorite flag lost")
+					}
+					return okResponse(nil), nil
+				default:
+					t.Fatalf("unexpected draft request: %s %s", method, path)
+					return nil, errors.New("unexpected request")
+				}
+			}}
+			c := withInbox(f)
+			c.folders["drafts"] = webFolder{ID: "drafts", Name: "draft", Type: "system"}
+			id, err := c.Append(context.Background(), "drafts", raw, tc.flags, time.Time{})
+			if err != nil || id != "saved-draft" || writes != 1 {
+				t.Fatalf("draft save failed: id=%s writes=%d err=%v", id, writes, err)
+			}
+			messages, err := c.Messages(context.Background(), "drafts")
+			if err != nil || len(messages) != 1 {
+				t.Fatalf("saved draft missing: %v", err)
+			}
+			if !strings.Contains(strings.Join(messages[0].Flags, " "), `\Draft`) {
+				t.Fatal("Drafts mailbox membership did not supply the draft flag")
+			}
+		})
+	}
+}
+
+func TestAppendDraftFlagRequiresTheSystemDraftsMailbox(t *testing.T) {
+	for _, folder := range []webFolder{
+		{ID: "folder", Name: "inbox", Type: "system"},
+		{ID: "folder", Name: "draft", Type: "user"},
+		{ID: "folder", Name: "Drafts", Type: "user"},
+	} {
+		c := New(&fakeTransport{do: func(method, path string, _ []byte, _ string) (*http.Response, error) {
+			t.Fatalf("unsupported draft request reached HTTP: %s %s", method, path)
+			return nil, errors.New("unexpected request")
+		}}, "sender@example.test")
+		c.folders[folder.ID] = folder
+		_, err := c.Append(context.Background(), folder.ID, []byte("Subject: unfinished\r\n\r\n"), []string{`\Draft`}, time.Time{})
+		if !errors.Is(err, model.ErrUnsupported) {
+			t.Fatalf("unsupported draft flag accepted for %#v: %v", folder, err)
+		}
+	}
+}
+
 const submission = "From: Sender <sender@example.test>\r\nTo: Visible <to@example.test>, unrequested@example.test\r\nCc: cc@example.test\r\nSubject: =?UTF-8?B?7YWM7Iqk7Yq4?=\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=test\r\n\r\n--test\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello\r\n--test\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=sample.bin\r\nContent-Transfer-Encoding: base64\r\n\r\nAP+A\r\n--test--\r\n"
 
 func TestSendUsesEnvelopeRecipientsAndAttachmentOctets(t *testing.T) {

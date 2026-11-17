@@ -59,8 +59,10 @@ memory ceiling; large MIME messages and concurrent clients increase usage.
 
 ## Unverified or unsupported behavior
 
-Saving an IMAP draft with `APPEND \Draft` remains
-unsupported. Changes to `\Answered`/`\Draft`, arbitrary SMTP header preservation,
+Draft APPEND to the system Drafts mailbox is supported. Regression tests cover
+exact MIME import, read/favorite flags, draft replacement, unsent drafts without
+recipients, and UID/body/attachment persistence after restarting the bridge.
+Changes to `\Answered`/`\Draft` through STORE, arbitrary SMTP header preservation,
 UIDPLUS, and COPY of bridge-only imported-date/deleted overlays are not claimed.
 Automatic expiry recovery was exercised with fake HTTP sessions; real fresh
 login and real persisted-session reuse were verified separately.

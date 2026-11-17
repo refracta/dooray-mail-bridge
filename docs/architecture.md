@@ -65,6 +65,11 @@ Read/favorite flags use Dooray's metadata mutation requests. Copy and move targe
 the actual remote folder ID. IMAP deletion is staged locally and committed only
 on EXPUNGE. APPEND uses Dooray's original-message import request and verifies the
 inserted message ID instead of guessing from the newest mail.
+In the system Drafts mailbox, APPEND accepts `\Draft` and preserves the original
+MIME through the same import path. The adapter derives the draft flag from the
+mailbox rather than passing it to Dooray's read/favorite mutation API. This
+supports a client's append-replacement/delete-old draft lifecycle without
+reconstructing attachments or sending the message.
 
 SMTP parses the submitted MIME, validates the sender, derives delivery recipients
 from the SMTP envelope, creates a Dooray draft, uploads attachments, updates the

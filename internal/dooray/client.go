@@ -525,8 +525,21 @@ func (c *Client) Append(ctx context.Context, folderID string, raw []byte, flags 
 	if _, err := mail.ReadMessage(bytes.NewReader(raw)); err != nil {
 		return "", errors.New("invalid MIME message")
 	}
-	for _, f := range flags {
-		if f != `\Seen` && f != `\Flagged` {
+	folder, err := c.folder(ctx, folderID)
+	if err != nil {
+		return "", err
+	}
+	var importFlags []string
+	for _, flag := range flags {
+		switch {
+		case strings.EqualFold(flag, `\Seen`):
+			importFlags = append(importFlags, `\Seen`)
+		case strings.EqualFold(flag, `\Flagged`):
+			importFlags = append(importFlags, `\Flagged`)
+		case strings.EqualFold(flag, `\Draft`) && folder.Type == "system" && folder.Name == "draft":
+			// Dooray imports original MIME into its Drafts mailbox. Membership
+			// supplies the draft flag; the read/favorite API cannot set it.
+		default:
 			return "", fmt.Errorf("%w: requested import flags cannot be synchronized", model.ErrUnsupported)
 		}
 	}
@@ -586,7 +599,7 @@ func (c *Client) Append(ctx context.Context, folderID string, raw []byte, flags 
 	if id == "" {
 		return "", fmt.Errorf("%w: import succeeded but original message ID could not be verified; do not automatically retry", model.ErrUnavailable)
 	}
-	if err := c.SetFlags(ctx, id, flags); err != nil {
+	if err := c.SetFlags(ctx, id, importFlags); err != nil {
 		return "", fmt.Errorf("import succeeded but flag update failed: %w", err)
 	}
 	return id, nil

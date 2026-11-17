@@ -12,7 +12,8 @@ original-message import, and SMTP submission with an ordinary binary attachment.
 Downloaded attachment hashes matched in both directions between KAIST and a
 separate mail provider. A later SMTP test verified both an ordinary PNG and an
 inline/CID PNG: the recipient downloads matched the source hashes and the HTML
-referenced the received image CID. IMAP draft saving remains unsupported.
+referenced the received image CID. Original-MIME import also accepts the system
+Drafts folder and preserves unsent messages byte-for-byte.
 No third-party bundles, mailbox contents, credentials, or cookies are included
 in this repository.
 
@@ -53,6 +54,9 @@ marker until the protocol layer calls `Delete` during EXPUNGE.
 `SetFlags` accepts only `\Seen` and `\Flagged`. It does not clear replied or
 draft metadata. The protocol layer exposes those as read-only flags and stores
 the deletion marker locally. System folders cannot be renamed or deleted.
+APPEND accepts `\Draft` for the system Drafts folder, where mailbox membership
+supplies that flag. The import endpoint stores the original message; it does
+not create or submit a web-composer draft via `/mail-drafts`.
 
 For import responses without an inserted message ID, the adapter compares the
 folder before and after import and matches downloaded MIME bytes. It refuses
