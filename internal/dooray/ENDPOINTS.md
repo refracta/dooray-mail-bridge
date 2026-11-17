@@ -10,7 +10,9 @@ server. Live checks on the same date additionally verified original MIME reads,
 read/favorite flags, folder create/rename/delete, copy/move/permanent deletion,
 original-message import, and SMTP submission with an ordinary binary attachment.
 Downloaded attachment hashes matched in both directions between KAIST and a
-separate mail provider. Inline images and IMAP draft saving were not live-tested.
+separate mail provider. A later SMTP test verified both an ordinary PNG and an
+inline/CID PNG: the recipient downloads matched the source hashes and the HTML
+referenced the received image CID. IMAP draft saving remains unsupported.
 No third-party bundles, mailbox contents, credentials, or cookies are included
 in this repository.
 

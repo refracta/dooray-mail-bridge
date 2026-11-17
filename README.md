@@ -13,13 +13,15 @@ service does not provide native IMAP for public institutions, according to its
 
 - KAIST ID/password login, fresh email verification codes, persistent cookies,
   expiry detection, and serialized session recovery.
+- Verification codes from an HTTPS service or directly from the external
+  verification mailbox over IMAP/TLS, without a separate code service.
 - The same KAIST ID/password authenticates both IMAP and SMTP. The full configured
   mail address is also accepted as the username.
 - IMAP folders, message search, original MIME/attachments, partial fetches,
   read/unread and important flags, copy/move, deletion, import, and IDLE updates.
 - Persistent mailbox UIDs/UIDVALIDITY, subscriptions, and an on-demand MIME cache.
 - SMTP submission through Dooray's draft/upload/send flow, with text, HTML,
-  attachments, and envelope-recipient handling.
+  file attachments, inline/CID images, and envelope-recipient handling.
 - TLS listeners, an upstream connection check, and graceful shutdown.
 
 This is an independent integration with Dooray's **internal web API**, not an
@@ -34,7 +36,7 @@ certificates and a writable data directory.
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/dooray-mail-bridge ./cmd/dooray-mail-bridge
 cp .env.example .env
 chmod 600 .env
-# Set KAIST_ID, KAIST_PASSWORD, KAIST_CODE_URL and TLS paths in .env.
+# Set KAIST credentials, a verification code source, and TLS paths in .env.
 ./bin/dooray-mail-bridge -check
 ./bin/dooray-mail-bridge
 ```
@@ -43,7 +45,13 @@ Environment variables take precedence over `.env`. Use `-env-file /path/to/file`
 to select another dotenv file. Credentials, cookies, caches, and TLS keys belong
 outside version control; the default paths are ignored by Git.
 
-`KAIST_CODE_URL` must be an HTTPS endpoint returning the latest verification mail:
+### Verification code source
+
+Choose one of these methods. `KAIST_CODE_SOURCE=http` uses an HTTPS code service;
+`KAIST_CODE_SOURCE=imap` reads the verification mailbox directly. If the source is
+omitted, a nonempty `KAIST_CODE_URL` takes precedence over IMAP configuration.
+
+For the HTTP method, `KAIST_CODE_URL` must return the latest verification mail:
 
 ```json
 {
@@ -59,6 +67,37 @@ before requesting a verification email, then accepts only a different, fresh
 message. `KAIST_CODE_TOKEN` optionally sets a bearer token. Use a mailbox monitor
 that restricts codes to the intended KAIST account. Codes and credentials are
 never logged.
+
+For direct IMAP access, configure the **external mailbox registered in KAIST
+SSO**. These credentials belong to that mailbox, separately from the KAIST
+credentials used by mail clients connecting to the bridge:
+
+```dotenv
+KAIST_CODE_SOURCE=imap
+KAIST_CODE_IMAP_ADDR=imap.naver.com:993
+KAIST_CODE_IMAP_USERNAME=your-verification-mailbox@naver.com
+KAIST_CODE_IMAP_PASSWORD=your-mailbox-or-app-password
+KAIST_CODE_IMAP_MAILBOX=INBOX
+KAIST_CODE_IMAP_RECIPIENT=your-verification-mailbox@naver.com
+```
+
+The address must include a port and support implicit TLS with a trusted
+certificate. Enable IMAP in the mailbox provider; use an app password if the
+provider requires one. `KAIST_CODE_IMAP_MAILBOX` defaults to `INBOX` and the
+recipient defaults to the IMAP username if it is an email address. The recipient
+must match the destination registered in SSO, even when the IMAP login name is
+different. `KAIST_CODE_URL` is not used in explicit IMAP mode.
+
+The bridge connects only during verification, selects the mailbox read-only,
+and records its UIDVALIDITY/UIDNEXT before requesting a code. It reads only new
+candidate messages with `BODY.PEEK`, validates the sender, decoded KAIST subject,
+recipient and freshness, and closes the connection afterward. It does not mark
+mail read, delete messages, or keep a copy of the mailbox. If UIDVALIDITY changes,
+the attempt stops rather than accepting a code from a reset mailbox.
+Some providers, including Naver, report UIDVALIDITY as zero. This is supported;
+the bridge also rejects a backward UIDNEXT and still checks message timestamps.
+A mailbox reset that reuses the same validity value and has already advanced
+past the previous UID watermark cannot be identified from UID metadata alone.
 
 ## Mail client settings
 

@@ -162,10 +162,7 @@ func (s *Session) completeLogin(ctx context.Context, doc loginDocument) error {
 			case "SS0098":
 				doc, err = s.loginRequest(ctx, http.MethodPost, s.ssoURL("/auth/kaist/user/login/second/view"), url.Values{"user_gubun": {"user"}, "linkUrl": {p.LinkURL}}, false)
 				if err == nil {
-					err = s.verifyEmail(ctx, doc)
-				}
-				if err == nil {
-					doc, err = s.loginRequest(ctx, http.MethodGet, s.ssoURL("/auth"+p.LinkURL), nil, false)
+					doc, err = s.verifyEmail(ctx, doc, p.LinkURL)
 				}
 			case "SS0099":
 				doc, err = s.loginRequest(ctx, http.MethodGet, s.ssoURL("/auth/kaist/user/device/view"), nil, false)
@@ -217,70 +214,72 @@ func (s *Session) completeLogin(ctx context.Context, doc loginDocument) error {
 				return nil
 			}
 		}
-		return errors.New("KAIST authentication flow reached an unsupported page")
+		return fmt.Errorf("KAIST authentication flow reached an unsupported page (%s%s)", doc.URL.Host, doc.URL.EscapedPath())
 	}
 	return errors.New("too many KAIST authentication steps")
 }
 
-func (s *Session) verifyEmail(ctx context.Context, doc loginDocument) error {
-	if s.opts.CodeURL == "" {
-		return errors.New("KAIST_CODE_URL is required for email verification")
+func (s *Session) verifyEmail(ctx context.Context, doc loginDocument, returnPath string) (loginDocument, error) {
+	if s.opts.CodeSource == "" {
+		return loginDocument{}, errors.New("configure an HTTP or IMAP source for KAIST email verification")
 	}
+	defer s.closeCodeSource()
 	if doc.URL.Host != s.sso.Host || doc.URL.Path != "/auth/kaist/user/login/second/view" {
-		return errors.New("unexpected KAIST verification page")
+		return loginDocument{}, errors.New("unexpected KAIST verification page")
 	}
 	p, err := parseLoginPage(doc.Body)
 	if err != nil {
-		return err
+		return loginDocument{}, err
 	}
 	if _, ok := p.Inputs["crtfc_no"]; !ok {
-		return errors.New("KAIST email verification form has changed")
+		return loginDocument{}, errors.New("KAIST email verification form has changed")
 	}
 	// The real page refreshes the server-side login nonce on pageshow.
 	if _, err := s.loginJSON(ctx, "/auth/user/login/init", url.Values{}); err != nil {
-		return err
+		return loginDocument{}, err
 	}
 	baseline, err := s.readCode(ctx)
 	if err != nil {
-		return err
+		return loginDocument{}, err
 	}
 	result, err := s.loginJSON(ctx, "/auth/kaist/user/login/second/ajaxSendMail", url.Values{})
 	if err != nil {
-		return err
+		return loginDocument{}, err
 	}
 	if result.ErrorCode != "SS0001" {
-		return errors.New("KAIST could not send the verification email")
+		return loginDocument{}, errors.New("KAIST could not send the verification email")
 	}
 	code, err := s.waitCode(ctx, baseline)
 	if err != nil {
-		return err
+		return loginDocument{}, err
 	}
 	result, err = s.loginJSON(ctx, "/auth/kaist/user/login/second/ajaxValidCrtfcNo", url.Values{"crtfc_no": {code}})
 	if err != nil {
-		return err
+		return loginDocument{}, err
 	}
 	if result.Code != "SS0001" {
 		switch result.Code {
 		case "SS0099":
 			doc, err := s.loginRequest(ctx, http.MethodGet, s.ssoURL("/auth/kaist/user/device/view"), nil, false)
 			if err != nil {
-				return err
+				return loginDocument{}, err
 			}
-			_, err = s.skipDeviceNotice(ctx, doc)
-			return err
+			// The skip redirect can already contain the one-use SAML response.
+			// Preserve that document instead of requesting the return path again.
+			return s.skipDeviceNotice(ctx, doc)
 		case "SS0007":
-			return errors.New("KAIST email verification succeeded; concurrent-session confirmation is required")
+			return loginDocument{}, errors.New("KAIST email verification succeeded; concurrent-session confirmation is required")
 		case "E001":
-			return errors.New("KAIST rejected the verification code")
+			return loginDocument{}, errors.New("KAIST rejected the verification code")
 		case "E002":
-			return errors.New("KAIST verification code expired")
+			return loginDocument{}, errors.New("KAIST verification code expired")
 		case "E003":
-			return errors.New("KAIST verification attempt limit reached")
+			return loginDocument{}, errors.New("KAIST verification attempt limit reached")
 		default:
-			return errors.New("KAIST email verification response was not supported")
+			return loginDocument{}, errors.New("KAIST email verification response was not supported")
 		}
 	}
-	return nil
+	return s.loginRequest(ctx, http.MethodGet, s.ssoURL("/auth"+returnPath), nil, false)
 }
 
 func (s *Session) skipDeviceNotice(ctx context.Context, doc loginDocument) (loginDocument, error) {

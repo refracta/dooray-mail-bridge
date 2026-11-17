@@ -1,4 +1,4 @@
-// Package session implements KAIST SAML/email authentication using only HTTP.
+// Package session implements KAIST SAML over HTTP with HTTP or IMAP email verification.
 // It does not launch a browser, execute downloaded JavaScript, or depend on MCP.
 package session
 
@@ -23,14 +23,20 @@ import (
 )
 
 type Options struct {
-	BaseURL      string
-	Username     string
-	Password     string
-	Email        string
-	CodeURL      string
-	CodeToken    string
-	DataDir      string
-	LoginTimeout time.Duration
+	BaseURL           string
+	Username          string
+	Password          string
+	Email             string
+	CodeURL           string
+	CodeToken         string
+	CodeSource        string
+	CodeIMAPAddr      string
+	CodeIMAPUsername  string
+	CodeIMAPPassword  string
+	CodeIMAPMailbox   string
+	CodeIMAPRecipient string
+	DataDir           string
+	LoginTimeout      time.Duration
 }
 
 type Session struct {
@@ -41,6 +47,7 @@ type Session struct {
 	client       *http.Client
 	loginClient  *http.Client
 	codeClient   *http.Client
+	codeIMAP     *imapCodeSource
 	gate         chan struct{}
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -53,6 +60,11 @@ type Session struct {
 }
 
 func New(opts Options) (*Session, error) {
+	var codeErr error
+	opts, codeErr = normalizeCodeOptions(opts)
+	if codeErr != nil {
+		return nil, codeErr
+	}
 	u, err := url.Parse(opts.BaseURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
 		return nil, errors.New("DOORAY_URL must be an HTTPS origin")
@@ -60,7 +72,7 @@ func New(opts Options) (*Session, error) {
 	if opts.Username == "" || opts.Password == "" || opts.Email == "" || opts.DataDir == "" {
 		return nil, errors.New("KAIST credentials, account email, and data directory are required")
 	}
-	if opts.CodeURL != "" {
+	if opts.CodeSource == "http" {
 		v, err := url.Parse(opts.CodeURL)
 		if err != nil || v.Scheme != "https" || v.Host == "" || v.User != nil {
 			return nil, errors.New("KAIST_CODE_URL must be an HTTPS URL without embedded credentials")
@@ -77,6 +89,9 @@ func New(opts Options) (*Session, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Session{opts: opts, base: u, sso: sso, jar: jar, gate: make(chan struct{}, 1), ctx: ctx, cancel: cancel}
+	if opts.CodeSource == "imap" {
+		s.codeIMAP = newIMAPCodeSource(opts)
+	}
 	s.client = &http.Client{Jar: jar, Timeout: 60 * time.Second, CheckRedirect: noRedirect}
 	s.codeClient = &http.Client{Timeout: 10 * time.Second, CheckRedirect: noRedirect}
 	s.loginClient = &http.Client{Jar: jar, Timeout: 45 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -181,6 +196,7 @@ func (s *Session) ensure(ctx context.Context) error {
 func (s *Session) Close() error {
 	s.cancel()
 	s.invalidate()
+	s.closeCodeSource()
 	s.client.CloseIdleConnections()
 	s.loginClient.CloseIdleConnections()
 	s.codeClient.CloseIdleConnections()

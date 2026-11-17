@@ -32,7 +32,21 @@ func FromEnv() (Config, error) {
 		return fallback
 	}
 	c := Config{DataDir: get("DATA_DIR", "data"), IMAPAddress: get("IMAP_ADDR", "127.0.0.1:1993"), SMTPAddress: get("SMTP_ADDR", "127.0.0.1:1465"), TLSCert: os.Getenv("TLS_CERT"), TLSKey: os.Getenv("TLS_KEY"), InsecureLocal: os.Getenv("ALLOW_INSECURE_LOCAL") == "true", PollInterval: 30 * time.Second, MaxMessageBytes: 32 << 20}
-	c.Session = session.Options{BaseURL: get("DOORAY_URL", "https://kaist.gov-dooray.com"), Username: os.Getenv("KAIST_ID"), Password: os.Getenv("KAIST_PASSWORD"), Email: os.Getenv("DOORAY_EMAIL"), CodeURL: os.Getenv("KAIST_CODE_URL"), CodeToken: os.Getenv("KAIST_CODE_TOKEN"), DataDir: filepath.Join(c.DataDir, "session")}
+	c.Session = session.Options{
+		BaseURL:           get("DOORAY_URL", "https://kaist.gov-dooray.com"),
+		Username:          os.Getenv("KAIST_ID"),
+		Password:          os.Getenv("KAIST_PASSWORD"),
+		Email:             os.Getenv("DOORAY_EMAIL"),
+		CodeSource:        os.Getenv("KAIST_CODE_SOURCE"),
+		CodeURL:           os.Getenv("KAIST_CODE_URL"),
+		CodeToken:         os.Getenv("KAIST_CODE_TOKEN"),
+		CodeIMAPAddr:      os.Getenv("KAIST_CODE_IMAP_ADDR"),
+		CodeIMAPUsername:  os.Getenv("KAIST_CODE_IMAP_USERNAME"),
+		CodeIMAPPassword:  os.Getenv("KAIST_CODE_IMAP_PASSWORD"),
+		CodeIMAPMailbox:   os.Getenv("KAIST_CODE_IMAP_MAILBOX"),
+		CodeIMAPRecipient: os.Getenv("KAIST_CODE_IMAP_RECIPIENT"),
+		DataDir:           filepath.Join(c.DataDir, "session"),
+	}
 	if c.Session.Email == "" && c.Session.Username != "" {
 		c.Session.Email = c.Session.Username + "@kaist.ac.kr"
 	}

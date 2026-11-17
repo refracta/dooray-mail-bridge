@@ -44,6 +44,7 @@ func identityJSON(w http.ResponseWriter) {
 
 func TestHTTPLoginMFADeviceNoticeSAMLAndPersistence(t *testing.T) {
 	var calls, auths, sends, validations, registrations atomic.Int32
+	var samlRequests atomic.Int32
 	var sent atomic.Bool
 	const key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
 	now := time.Now().UTC()
@@ -137,6 +138,12 @@ func TestHTTPLoginMFADeviceNoticeSAMLAndPersistence(t *testing.T) {
 		case "/auth/kaist/user/device/login":
 			http.Redirect(w, r, "/auth/kaist/user/saml/login/link/redirect", 302)
 		case "/auth/kaist/user/saml/login/link/redirect":
+			if samlRequests.Add(1) != 1 {
+				// The upstream SAML request is consumed when its assertion is
+				// created. Fetching the return path again cannot recover it.
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			fmt.Fprint(w, `<form method="post" action="/saml/acs"><input type="hidden" name="SAMLResponse" value="fixture-assertion"><input type="hidden" name="RelayState" value="fixture-relay"></form><script>document.forms[0].submit()</script>`)
 		case "/saml/acs":
 			r.ParseForm()
@@ -155,7 +162,7 @@ func TestHTTPLoginMFADeviceNoticeSAMLAndPersistence(t *testing.T) {
 	if err := s.Authenticate(context.Background(), "student", "fixture-password"); err != nil {
 		t.Fatal(err)
 	}
-	if auths.Load() != 1 || sends.Load() != 1 || validations.Load() != 1 || registrations.Load() != 0 {
+	if auths.Load() != 1 || sends.Load() != 1 || validations.Load() != 1 || registrations.Load() != 0 || samlRequests.Load() != 1 {
 		t.Fatal("login or verification was replayed")
 	}
 	before := calls.Load()

@@ -26,6 +26,23 @@ SSO page's challenge parameters, requests email verification, and submits a fres
 code. Cookies remain private local state. There is no browser process or
 JavaScript execution in the service.
 
+Verification can use an HTTPS code endpoint or direct IMAP/TLS access to the
+external mailbox registered with SSO. Direct IMAP holds a connection only during
+verification. A read-only mailbox snapshot before the email request establishes
+the UIDVALIDITY and first permissible UID; new candidates are fetched with PEEK
+and checked for the exact sender, subject, recipient, and recent receipt time.
+MIME decoding preserves leading zeroes and handles encoded Korean subjects and
+HTML/text bodies. Mailbox resets abort the attempt, transient connection failures
+can reconnect, and verification messages are neither modified nor cached.
+Naver's zero UIDVALIDITY is treated as a real value, with positive UIDNEXT as the
+IMAP baseline marker. Backward UIDNEXT is rejected. A reset that reuses the same
+validity value without an observable UIDNEXT regression is not detectable from
+UID metadata alone; sender/recipient and timestamp checks still apply.
+
+The device-notice skip response can contain a one-use SAML assertion. Login
+consumes that response directly instead of requesting the return page a second
+time.
+
 Concurrent operations share session recovery. Read requests can be retried after
 an explicit authentication failure; mutation requests are not replayed after an
 uncertain response. Failed authentication attempts have a cooldown.
