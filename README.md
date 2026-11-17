@@ -27,7 +27,21 @@ service does not provide native IMAP for public institutions, according to its
 This is an independent integration with Dooray's **internal web API**, not an
 official Dooray SDK. Authentication and API changes can require updates.
 
-## Build and configure
+## Docker Compose
+
+```sh
+cp .env.example .env
+chmod 600 .env
+# Set credentials and a verification source; install TLS files under ./certs.
+docker compose up -d --build
+```
+
+The image runs as a non-root user with a read-only root filesystem and persistent
+mail state. Compose publishes TLS ports 1993/1465 on loopback by default. See
+[deployment instructions](docs/deployment.md) for certificate permissions,
+remote access, port forwarding, updates and backups.
+
+## Build and configure without Docker
 
 Requires Go 1.26 or newer to build. The compiled service needs only OS CA
 certificates and a writable data directory.

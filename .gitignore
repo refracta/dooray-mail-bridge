@@ -16,5 +16,7 @@ coverage.out
 *.pem
 *.key
 *.crt
+/certs/
+compose.override.yaml
 node_modules/
 .DS_Store

@@ -44,6 +44,9 @@ account, using the running bridge and the connected mail MCP:
 | UID persistence | Restart preserved the test message's UID and mailbox UIDVALIDITY |
 | TLS | IMAP read and SMTP authentication passed over certificate-validated TLS connections; SMTP negotiated TLS 1.3 |
 | Relay rejection | An unauthenticated SMTP MAIL command was rejected before any delivery |
+| Docker Compose | The multi-stage image built and ran as UID 10001 with a read-only root filesystem and persistent data volume on Docker 20.10 / Compose 2.9; direct IMAP verification succeeded from the container |
+| Public deployment | From outside the server LAN, both forwarded ports negotiated certificate-validated TLS 1.3; IMAP login, read-only INBOX access, SMTP authentication and unauthenticated-relay rejection passed |
+| Certificate renewal helper | A synthetic certificate was copied, unchanged files caused no restart, and a mismatched replacement key was rejected before changing the installed pair |
 
 The synthetic mail subjects identify them as bridge tests. Original unrelated
 mail was not modified. All temporary test folders and their copied/imported
